@@ -30,7 +30,7 @@ contract MiningTest is Base {
         endAndSettle(id);
 
         uint256 solverPool = roundPool(id) * 8000 / 10000;
-        uint256 expected = solverPool * 4 / 31 * 7 / 10; // rung 2 weight 4/31, n_eff=0.1 -> g=0.7
+        uint256 expected = solverPool * 4 / 31 * 7 / 10; // rung 2 weight 4/31, one solver -> g=0.7
         assertEq(rungPayout(id, 2), expected);
         engine.accrueSolver(id, 2, alice);
         vm.prank(alice);
@@ -168,7 +168,7 @@ contract MiningTest is Base {
     }
 
     function test_settlementBucketsAndCrowding() public {
-        // 3 distinct solvers on rung 0 (n_eff = 0.3 < 2 -> 0.7); nobody elsewhere
+        // 3 distinct solvers on rung 0 (headcount 3, k=3 -> sweet spot, g=1); nobody elsewhere
         uint256 id = startAndPost();
         commitAs(alice, id, 0, ans(4), bytes32(uint256(1)));
         commitAs(bob, id, 0, ans2(0, 3), bytes32(uint256(2)));
@@ -178,10 +178,10 @@ contract MiningTest is Base {
         revealAs(bob, id, 0, ans2(0, 3), bytes32(uint256(2)));
         revealAs(carol, id, 0, ans2(1, 2), bytes32(uint256(3)));
         endAndSettle(id);
-        assertEq(rungBucket(id, 0), 1);
+        assertEq(rungBucket(id, 0), 2);
         assertEq(rungBucket(id, 1), 0);
         uint256 solverPool = roundPool(id) * 8000 / 10000;
-        assertEq(rungPayout(id, 0), solverPool * 1 / 31 * 7 / 10);
+        assertEq(rungPayout(id, 0), solverPool * 1 / 31);
         assertEq(rungPayout(id, 4), 0);
     }
 
@@ -264,21 +264,21 @@ contract MiningTest is Base {
     }
 
     // ------------------------------ ladder ------------------------------
-    function test_ladderCenteredOnSweetSpot() public {
+    function test_ladderTopsAtSweetSpot() public {
         uint256 s0 = engine.sweetSpot();
         uint256 id = startAndPost();
         (,, uint256 d0,,,,,,) = engine.rungs(id, 0);
         (,, uint256 d2,,,,,,) = engine.rungs(id, 2);
         (,, uint256 d4,,,,,,) = engine.rungs(id, 4);
-        assertEq(d2, s0);
-        assertEq(d0, s0 / 4);
-        assertEq(d4, s0 * 4);
+        assertEq(d4, s0);
+        assertEq(d2, s0 / 4);
+        assertEq(d0, s0 / 16);
         // only rung 1 solved -> new sweet spot = difficulty of rung 1
         commitAs(alice, id, 1, ans(4), bytes32(uint256(1)));
         revealPuzzles(id);
         revealAs(alice, id, 1, ans(4), bytes32(uint256(1)));
         endAndSettle(id);
-        assertEq(engine.sweetSpot(), s0 / 2);
+        assertEq(engine.sweetSpot(), s0 / 8);
     }
 
     function test_numRungsConfigurable() public {

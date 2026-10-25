@@ -4,8 +4,8 @@ $EDGE / PoF agent-based simulation (180 days).
 
 Mirrors the on-chain rules in contracts/PoFEngine.sol + ForecastMarket.sol:
   * daily emission 92,000 * 0.999^day, 4h rounds (6/day), round pool = emission + rollover
-  * 5 rungs, weight 2^r, difficulty doubles per rung, ladder re-centred on last sweet spot
-  * 80% solvers / 20% forecasters; g(n_eff): 0 | 0.7 | 1 | k/n_eff ; k = clamp(sqrt(active)/10, 3, 30)
+  * 5 rungs, weight 2^r, difficulty doubles per rung, top rung = last sweet spot (v3.1)
+  * 80% solvers / 20% forecasters; g(n) on distinct headcount n (v3.1): 0 | 0.7 | 1 | k/n ; k = clamp(sqrt(active)/10, 3, 30)
   * within rung split by reputation R; R in [0.1, 1], +0.05 distinct correct, -0.1 wrong,
     excess over 0.1 decays 1%/day when inactive
   * duplicate answers: only the first revealer counts; bond 10 EDGE burned on wrong answers
@@ -99,7 +99,7 @@ for day in range(DAYS):
         rollover = 0.0
         d["fresh"] += fresh
         solver_pool, f_pool = pool * 0.8, pool * 0.2
-        levels = sweet + np.arange(N_RUNGS) - N_RUNGS // 2
+        levels = sweet + np.arange(N_RUNGS) - (N_RUNGS - 1)  # v3.1: top rung = sweet spot
 
         committed = np.zeros(N_AGENTS, bool)
         rung_payout = np.zeros(N_RUNGS)
@@ -153,7 +153,7 @@ for day in range(DAYS):
         sumw = 2 ** N_RUNGS - 1
         paid = 0.0
         for r in range(N_RUNGS):
-            share = solver_pool * (2 ** r) / sumw * g(rung_neff[r], k)
+            share = solver_pool * (2 ** r) / sumw * g(len(distinct_solvers[r]), k)  # v3.1 headcount
             paid += share
             for a, ra in distinct_solvers[r]:
                 amt = share * ra / rung_neff[r]
@@ -163,7 +163,7 @@ for day in range(DAYS):
                     d["honest"] += amt
 
         # --- forecasters ---
-        outcome = [bucket(rung_neff[r], k) for r in range(N_RUNGS)]
+        outcome = [bucket(len(distinct_solvers[r]), k) for r in range(N_RUNGS)]
         weights = np.zeros(len(f_stake))
         for f in range(len(f_stake)):
             brier = 0.0

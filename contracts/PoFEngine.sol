@@ -221,11 +221,11 @@ contract PoFEngine is IPoFEngine, AccessControl, Pausable, ReentrancyGuard {
         r.pool = pool;
         r.freshEmission = fresh;
 
-        // ladder centered on the previous sweet spot, difficulty doubles per rung
+        // v3.1: ladder tops out at the previous sweet spot (top rung = frontier, carries the
+        // biggest weight), difficulty halves per rung going down. Crowded top -> sweet spot moves up.
         uint8 n = numRungs;
-        uint256 mid = n / 2;
         for (uint8 i = 0; i < n; i++) {
-            uint256 d = i >= mid ? sweetSpot << (i - mid) : sweetSpot >> (mid - i);
+            uint256 d = sweetSpot >> (n - 1 - i);
             rungs[id][i].difficulty = d == 0 ? 1 : d;
         }
         randomness.requestSeed(id);
@@ -395,8 +395,11 @@ contract PoFEngine is IPoFEngine, AccessControl, Pausable, ReentrancyGuard {
             }
             bondsToBurn += g.bondsOutstanding; // committed but never revealed
             g.bondsOutstanding = 0;
-            g.bucket = PoFMath.bucket(g.sumR, k);
-            uint256 share = (base * PoFMath.g(g.sumR, k)) / WAD;
+            // v3.1: crowding is measured by headcount of distinct solutions (each costs a
+            // separate .ai Agent ID + bond); reputation only splits the rung share.
+            uint256 nCount = uint256(g.distinct) * WAD;
+            g.bucket = PoFMath.bucket(nCount, k);
+            uint256 share = (base * PoFMath.g(nCount, k)) / WAD;
             g.payout = share;
             paid += share;
         }
