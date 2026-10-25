@@ -118,6 +118,7 @@ contract PoFEngine is IPoFEngine, AccessControl, Pausable, ReentrancyGuard {
         bool accrued;
         bool refunded;
         uint64 r; // reputation snapshot at reveal (WAD; fits in uint64)
+        bytes32 ansHash; // v3.2: correct answer hash -> identical answers share one solution's share
     }
 
     struct Rep {
@@ -133,6 +134,9 @@ contract PoFEngine is IPoFEngine, AccessControl, Pausable, ReentrancyGuard {
     mapping(uint256 => mapping(uint8 => bytes)) public puzzleParams;
     mapping(uint256 => mapping(uint8 => mapping(address => Commit))) public commits;
     mapping(uint256 => mapping(uint8 => mapping(bytes32 => address))) public firstRevealer;
+    /// v3.2: per distinct solution: number of IDs that revealed it, and its weight (max reputation among them)
+    mapping(uint256 => mapping(uint8 => mapping(bytes32 => uint32))) public answerCount;
+    mapping(uint256 => mapping(uint8 => mapping(bytes32 => uint256))) public answerWeight;
     mapping(uint256 => mapping(address => bool)) public activeIn;
     mapping(address => Rep) internal _rep;
     mapping(address => uint256) public pendingRewards;
@@ -326,18 +330,24 @@ contract PoFEngine is IPoFEngine, AccessControl, Pausable, ReentrancyGuard {
         if (ok) {
             c.correct = true;
             bytes32 ah = keccak256(answer);
+            // v3.2: answers are hidden until the commit window closes, so an identical answer is an
+            // independent discovery, not a copy. Every ID with that answer shares ONE solution's share:
+            // honest solvers of unique-answer puzzles are no longer a reveal race, and a Sybil that
+            // submits the same answer from N IDs still gets exactly one share in total.
+            c.distinct = true; // eligible for the rung payout
+            c.ansHash = ah;
+            c.r = uint64(rNow);
             if (firstRevealer[id][rung][ah] == address(0)) {
-                // distinct solution: counts toward n_eff and earns the rung share
                 firstRevealer[id][rung][ah] = msg.sender;
-                c.distinct = true;
-                c.r = uint64(rNow);
+                g.distinct++; // headcount of distinct solutions drives crowding
+                answerWeight[id][rung][ah] = rNow;
                 g.sumR += rNow;
-                g.distinct++;
-                _setRep(msg.sender, rNow + R_UP);
-            } else {
-                // duplicate of an already-revealed answer: bond back, no reward, no reputation gain
-                _setRep(msg.sender, rNow);
+            } else if (rNow > answerWeight[id][rung][ah]) {
+                g.sumR += rNow - answerWeight[id][rung][ah];
+                answerWeight[id][rung][ah] = rNow;
             }
+            answerCount[id][rung][ah] += 1;
+            _setRep(msg.sender, rNow + R_UP);
             IERC20(address(token)).safeTransfer(msg.sender, BOND);
         } else {
             _setRep(msg.sender, rNow > R_DOWN + R_MIN ? rNow - R_DOWN : R_MIN);
@@ -449,16 +459,21 @@ contract PoFEngine is IPoFEngine, AccessControl, Pausable, ReentrancyGuard {
         Commit storage c = commits[id][rung][user];
         if (!c.distinct || c.accrued) revert AlreadyDone();
         c.accrued = true;
-        Rung storage g = rungs[id][rung];
-        uint256 amt = (g.payout * c.r) / g.sumR;
-        _accrue(user, amt);
+        _accrue(user, _share(id, rung, c));
     }
 
     function claimable(uint256 id, uint8 rung, address user) external view returns (uint256) {
         Commit storage c = commits[id][rung][user];
         Rung storage g = rungs[id][rung];
         if (!rounds[id].settled || !c.distinct || c.accrued || g.sumR == 0) return 0;
-        return (g.payout * c.r) / g.sumR;
+        return _share(id, rung, c);
+    }
+
+    /// @dev rung payout * (weight of this solution / sum of solution weights) / IDs sharing it
+    function _share(uint256 id, uint8 rung, Commit storage c) internal view returns (uint256) {
+        Rung storage g = rungs[id][rung];
+        if (g.sumR == 0) return 0;
+        return (g.payout * answerWeight[id][rung][c.ansHash]) / g.sumR / answerCount[id][rung][c.ansHash];
     }
 
     /// @notice Mint all accrued rewards. Never paused (already-earned rewards).

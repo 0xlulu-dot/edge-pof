@@ -102,6 +102,7 @@ contract MiningTest is Base {
 
     // ------------------------------ duplicates ------------------------------
     function test_duplicateAnswersCountOnce() public {
+        // v3.2: identical answers = one solution; its share is split among everyone who found it
         uint256 id = startAndPost();
         commitAs(alice, id, 0, ans(4), bytes32(uint256(1)));
         commitAs(bob, id, 0, ans(4), bytes32(uint256(2))); // same answer, different salt
@@ -111,17 +112,35 @@ contract MiningTest is Base {
         revealAs(alice, id, 0, ans(4), bytes32(uint256(1)));
         revealAs(bob, id, 0, ans(4), bytes32(uint256(2)));
         revealAs(carol, id, 0, ans2(0, 3), bytes32(uint256(3)));
-        assertEq(token.balanceOf(bob), bobBal + 10e18); // duplicate: bond back
-        assertEq(engine.reputationOf(bob), 0.1e18); // but no reputation gain
-        assertEq(rungDistinct(id, 0), 2);
-        assertEq(rungSumR(id, 0), 0.2e18);
+        assertEq(token.balanceOf(bob), bobBal + 10e18); // bond back
+        assertEq(engine.reputationOf(bob), 0.15e18); // correct work earns reputation
+        assertEq(rungDistinct(id, 0), 2); // crowding counts distinct solutions only
+        assertEq(rungSumR(id, 0), 0.2e18); // one weight per solution
         endAndSettle(id);
-        vm.expectRevert(PoFEngine.AlreadyDone.selector);
-        engine.accrueSolver(id, 0, bob);
         engine.accrueSolver(id, 0, alice);
+        engine.accrueSolver(id, 0, bob);
         engine.accrueSolver(id, 0, carol);
-        assertEq(engine.pendingRewards(alice), engine.pendingRewards(carol));
-        assertEq(engine.pendingRewards(alice), rungPayout(id, 0) / 2);
+        uint256 half = rungPayout(id, 0) / 2;
+        assertEq(engine.pendingRewards(carol), half);
+        assertEq(engine.pendingRewards(alice), engine.pendingRewards(bob));
+        assertApproxEqAbs(engine.pendingRewards(alice) + engine.pendingRewards(bob), half, 2);
+    }
+
+    function test_sybilSameAnswerGainsNothing() public {
+        // one answer from 1 ID vs the same answer from 3 IDs: same total for that solution
+        uint256 id = startAndPost();
+        commitAs(alice, id, 0, ans(4), bytes32(uint256(1)));
+        commitAs(bob, id, 0, ans2(0, 3), bytes32(uint256(2)));
+        commitAs(carol, id, 0, ans2(0, 3), bytes32(uint256(3)));
+        commitAs(dave, id, 0, ans2(0, 3), bytes32(uint256(4)));
+        revealPuzzles(id);
+        revealAs(alice, id, 0, ans(4), bytes32(uint256(1)));
+        revealAs(bob, id, 0, ans2(0, 3), bytes32(uint256(2)));
+        revealAs(carol, id, 0, ans2(0, 3), bytes32(uint256(3)));
+        revealAs(dave, id, 0, ans2(0, 3), bytes32(uint256(4)));
+        endAndSettle(id);
+        uint256 cluster = engine.claimable(id, 0, bob) + engine.claimable(id, 0, carol) + engine.claimable(id, 0, dave);
+        assertApproxEqAbs(cluster, engine.claimable(id, 0, alice), 3);
     }
 
     function test_withinRungSplitByReputation() public {

@@ -48,6 +48,7 @@ abstract contract Base is Test {
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
     address carol = makeAddr("carol");
+    address dave = makeAddr("dave");
     address mallory = makeAddr("mallory"); // not an agent
     address publisher = makeAddr("publisher");
 
@@ -82,7 +83,7 @@ abstract contract Base is Test {
         bb.setToken(address(usdt), true, 2e18); // 1 USDT = 2 EDGE
         bb.setToken(address(token), true, 1e18);
 
-        address[4] memory ags = [alice, bob, carol, publisher];
+        address[5] memory ags = [alice, bob, carol, dave, publisher];
         for (uint256 i = 0; i < ags.length; i++) {
             if (ags[i] != publisher) gate.setAgent(ags[i], true);
             vm.prank(liquidity);
