@@ -148,3 +148,8 @@ forge script script/Deploy.s.sol --rpc-url $BSC_TESTNET_RPC --broadcast
    - 预测"活跃 ID 数" = 本轮提交过的不同地址数。
 6. `ProgramIOVerifier` 每次验证都会部署一个合约（gas 较高），单次调用有 gas 上限，引擎外层也包了 try/catch 和 gas 上限。
 7. 暂停期间 `settle` 会被阻止，已答对的人要等恢复后才能结算出奖励，但保证金已经退回。
+
+## Agent ID gate (real)
+`contracts/identity/AgentIdNftGate.sol` gates on the SPACE ID "Agent ID" soulbound ERC-721 on BSC mainnet
+(`0x60B9262456dE011F7d15a54CdD8c48bAaa8B022F`, symbol `AI`): `balanceOf(account) > 0`, fail-closed.
+Deploy with `AGENT_ID_REGISTRY=<addr>`. Mainnet-fork tests: `BSC_RPC=https://bsc.rpc.blxrbdn.com forge test --match-contract AgentIdFork`.

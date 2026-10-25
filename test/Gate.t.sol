@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import "./Base.t.sol";
 import {SpaceIdAgentGate, ISidReverseLookup} from "../contracts/identity/SpaceIdAgentGate.sol";
+import {AgentIdNftGate} from "../contracts/identity/AgentIdNftGate.sol";
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 
 contract MockLookup is ISidReverseLookup {
@@ -23,7 +24,49 @@ contract MockLookup is ISidReverseLookup {
     }
 }
 
+contract MockAgentNft {
+    mapping(address => uint256) public balanceOf;
+    bool public broken;
+
+    function set(address a, uint256 b) external {
+        balanceOf[a] = b;
+    }
+}
+
+contract RevertingNft {
+    function balanceOf(address) external pure returns (uint256) {
+        revert("down");
+    }
+}
+
 contract GateTest is Base {
+    function test_agentIdNftGate() public {
+        MockAgentNft nft = new MockAgentNft();
+        AgentIdNftGate g = new AgentIdNftGate(address(nft), admin);
+        nft.set(alice, 1);
+        assertTrue(g.isAgent(alice));
+        assertFalse(g.isAgent(bob));
+        assertFalse(g.isAgent(address(0)));
+        RevertingNft bad = new RevertingNft();
+        vm.prank(admin);
+        g.setRegistry(address(bad));
+        assertFalse(g.isAgent(alice)); // fails closed
+        vm.expectRevert(AgentIdNftGate.NotContract.selector);
+        new AgentIdNftGate(address(0x1234), admin);
+    }
+
+    function test_agentIdNftGatePluggedIntoEngine() public {
+        MockAgentNft nft = new MockAgentNft();
+        AgentIdNftGate g = new AgentIdNftGate(address(nft), admin);
+        nft.set(mallory, 1);
+        engine.setIdentityGate(address(g));
+        uint256 id = startAndPost();
+        commitAs(mallory, id, 0, ans(4), bytes32(uint256(1)));
+        vm.prank(alice);
+        vm.expectRevert(PoFEngine.NotAgent.selector);
+        engine.commit(id, 0, keccak256("y"));
+    }
+
     function test_nonAgentCommitRejected() public {
         uint256 id = startAndPost();
         vm.prank(mallory);

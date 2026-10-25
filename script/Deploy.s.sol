@@ -11,6 +11,7 @@ import {BountyBoard} from "../contracts/BountyBoard.sol";
 import {FeeCollector} from "../contracts/FeeCollector.sol";
 import {AirdropDistributor} from "../contracts/AirdropDistributor.sol";
 import {MockAgentGate} from "../contracts/identity/MockAgentGate.sol";
+import {AgentIdNftGate} from "../contracts/identity/AgentIdNftGate.sol";
 import {SpaceIdAgentGate} from "../contracts/identity/SpaceIdAgentGate.sol";
 import {MockRandomness} from "../contracts/randomness/MockRandomness.sol";
 import {SubsetSumVerifier} from "../contracts/verifiers/SubsetSumVerifier.sol";
@@ -27,7 +28,8 @@ import {IRandomness} from "../contracts/interfaces/IRandomness.sol";
 ///   export MULTISIG=0x...               # timelock proposer/executor (defaults to deployer)
 ///   export GENERATOR=0x... GUARDIAN=0x... LIQUIDITY=0x...
 ///   export AIRDROP_ROOT=0x...           # merkle root of the calibration airdrop
-///   export SID_LOOKUP=0x...             # optional; unset -> MockAgentGate (testnet only)
+///   export AGENT_ID_REGISTRY=0x...      # optional; soulbound Agent ID ERC721 (mainnet: 0x60B9262456dE011F7d15a54CdD8c48bAaa8B022F)
+///   export SID_LOOKUP=0x...             # legacy; both unset -> MockAgentGate (testnet only)
 ///   export USDT=0x... USDT_EDGE_PRICE=2000000000000000000   # optional
 ///   forge script script/Deploy.s.sol --rpc-url $BSC_TESTNET_RPC --broadcast
 contract Deploy is Script {
@@ -40,6 +42,7 @@ contract Deploy is Script {
         address guardian = vm.envOr("GUARDIAN", deployer);
         address liquidity = vm.envOr("LIQUIDITY", deployer);
         bytes32 root = vm.envOr("AIRDROP_ROOT", bytes32(0));
+        address agentReg = vm.envOr("AGENT_ID_REGISTRY", address(0));
         address sidLookup = vm.envOr("SID_LOOKUP", address(0));
         address usdt = vm.envOr("USDT", address(0));
         uint256 usdtPrice = vm.envOr("USDT_EDGE_PRICE", uint256(0));
@@ -55,7 +58,9 @@ contract Deploy is Script {
         airdrop.initToken(token);
 
         IAgentIdentity gate;
-        if (sidLookup != address(0)) {
+        if (agentReg != address(0)) {
+            gate = new AgentIdNftGate(agentReg, address(timelock));
+        } else if (sidLookup != address(0)) {
             gate = new SpaceIdAgentGate(sidLookup, address(timelock));
         } else {
             gate = new MockAgentGate(); // TODO(SPACE ID): testnet only
